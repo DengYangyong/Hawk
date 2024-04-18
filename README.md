@@ -45,8 +45,8 @@ python ge_data/ge_data_all_vicuna.py --start 0 --end 1000 --outdir ./
 
 R-Drop 版本的单节点多 GPU训练：
 
-nohup python -m torch.distributed.launch --nproc_per_node=2 train/main_rdrop.py --tmpdir /root/EAGLE/data/ShareGPT_Vicuna_unfiltered/1/ --outdir checkpoints/ --cpdir checkpoints/ --basepath /root/model/vicuna-7b-v1.3 --configpath train/vicuna_7B_config.json --bs 3 > vicuna_rdrop.log 2>&1 &
+nohup python -m torch.distributed.launch --nproc_per_node=2 train/main_rdrop.py --tmpdir /root/Hawk/data/ShareGPT_Vicuna_unfiltered/1/ --outdir checkpoints/ --cpdir checkpoints/ --basepath /root/model/vicuna-7b-v1.3 --configpath train/vicuna_7B_config.json --bs 3 > vicuna_rdrop.log 2>&1 &
 
 EAGLE原始版本的单节点多 GPU 训练：
 
-nohup python -m torch.distributed.launch --nproc_per_node=2 train/main.py --tmpdir /root/EAGLE/data/ShareGPT_Vicuna_unfiltered/1/ --outdir checkpoints/ --cpdir checkpoints/ --basepath /root/model/vicuna-7b-v1.3 --configpath train/vicuna_7B_config.json --bs 3 > vicuna.log 2>&1 &
+nohup python -m torch.distributed.launch --nproc_per_node=2 train/main.py --tmpdir /root/Hawk/data/ShareGPT_Vicuna_unfiltered/1/ --outdir checkpoints/ --cpdir checkpoints/ --basepath /root/model/vicuna-7b-v1.3 --configpath train/vicuna_7B_config.json --bs 3 > vicuna.log 2>&1 &
