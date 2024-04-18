@@ -19,7 +19,8 @@ from datasets import load_dataset
 import json
 from fastchat.model.model_adapter import get_conversation_template
 
-bigname="lmsys/vicuna-7b-v1.3"
+bigname="/root/model/vicuna-7b-v1.3"
+
 # bigname = "/home/lyh/weights/hf/llama/7B/"
 # smallname = "/home/lyh/weights/hf/llama/7B/"
 
@@ -43,7 +44,7 @@ def build_dataset_rank(
         tokenizer, split="train",
         select=None,
 ):
-    ds = load_dataset('json', data_files="/root/EAGLE/data/ShareGPT_Vicuna_unfiltered/ShareGPT_V3_unfiltered_cleaned_split.json")
+    ds = load_dataset('json', data_files="/root/Hawk/data/ShareGPT_Vicuna_unfiltered/ShareGPT_V3_unfiltered_cleaned_split.json")
     ds = ds['train']
     ds = ds.shuffle(seed=42)
     ds1 = ds.select(range(args.start, args.end))

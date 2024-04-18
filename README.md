@@ -25,7 +25,7 @@ cd ShareGPT_Vicuna_unfiltered
 git lfs pull --include="ShareGPT_V3_unfiltered_cleaned_split.json"
 
 # 2、拉取模型
-git lfs clone https://huggingface.co/lmsys/vicuna-7b-v1.3
+git lfs clone https://huggingface.co/lmsys/vicuna-7b-v1.3 
 
 git lfs pull
 

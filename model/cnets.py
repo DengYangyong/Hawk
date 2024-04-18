@@ -222,7 +222,7 @@ class LlamaAttention(nn.Module):
         self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
         self.o_proj = nn.Linear(self.num_heads * self.head_dim, self.hidden_size, bias=False)
         self._init_rope()
-        self.dropout = nn.Dropout(config.dropout_prob)
+        self.dropout = nn.Dropout(0.1)
 
     def _init_rope(self):
         if self.config.rope_scaling is None:
@@ -350,7 +350,7 @@ class LlamaMLP(nn.Module):
         self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
         self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
         self.act_fn = ACT2FN[config.hidden_act]
-        self.dropout = nn.Dropout(config.dropout_prob)
+        self.dropout = nn.Dropout(0.1)
 
     def forward(self, x):
         if self.config.pretraining_tp > 1:
@@ -476,11 +476,12 @@ def len_list(x,n):
 
 
 class Model(nn.Module):
-    def __init__(self,config,load_emb=False,path=None,bias=True):
+    def __init__(self,config,load_emb=False,path=None,bias=True, emb_tune=False):
         super().__init__()
         self.gradient_checkpointing = True
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
+        self.emb_tune = emb_tune
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
         if load_emb:
@@ -509,8 +510,12 @@ class Model(nn.Module):
         self.layers = nn.ModuleList([LlamaDecoderLayer(config,index) for index in range(config.num_hidden_layers)])
         self.fc=nn.Linear(2*config.hidden_size,config.hidden_size,bias=bias)
         self.act=ACT2FN[config.hidden_act]
-        for param in self.embed_tokens.parameters():
-            param.requires_grad = False
+        if emb_tune:
+            for param in self.embed_tokens.parameters():
+                param.requires_grad = True
+        else:
+            for param in self.embed_tokens.parameters():
+                param.requires_grad = False
 
 
     def init_tree(self):
@@ -573,9 +578,12 @@ class Model(nn.Module):
         seq_length_with_past = seq_length
         past_key_values_length = 0
 
-        with torch.no_grad():
+        if self.emb_tune:
             inputs_embeds = self.embed_tokens(input_ids)
             #inputs_embeds = inputs_embeds.detach()
+        else:
+            with torch.no_grad():
+                inputs_embeds = self.embed_tokens(input_ids)
 
         # if std is not None:
         #     noise = torch.randn(inputs_embeds.size(),device=inputs_embeds.device) * std
