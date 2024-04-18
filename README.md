@@ -30,7 +30,7 @@ git lfs clone https://huggingface.co/lmsys/vicuna-7b-v1.3
 git lfs pull
 
 # 3、生成训练数据
-python ge_data/ge_data_all_vicuna.py --start 0 --end 1000 --outdir ./
+python ge_data/ge_data_all_vicuna.py --start 0 --end 1000 --outdir /root/Hawk/data/ShareGPT_Vicuna_unfiltered/
 
 需要自己设置一些命令行参数，先生成少量数据测通。
 
