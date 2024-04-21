@@ -30,11 +30,14 @@ git lfs clone https://huggingface.co/lmsys/vicuna-7b-v1.3
 git lfs pull
 
 # 3、生成训练数据
+
+直接跑根目录下的：ge_data.sh，生成 1500+的数据。
+
+以下是拉取代码的说明：
+
 python ge_data/ge_data_all_vicuna.py --start 0 --end 1000 --outdir /root/Hawk/data/ShareGPT_Vicuna_unfiltered/
 
 需要自己设置一些命令行参数，先生成少量数据测通。
-
-按照我的设置，并经过 mv 的操作，数据集放在了：/root/Hawk/data/ShareGPT_Vicuna_unfiltered/1/
 
 # 4、训练模型
 用 train 目录下的 vicuna_7B_config.json 来初始化 auto-regression head，而不是 vicuna 的 config.json，因为参数量会设置得小一些。
