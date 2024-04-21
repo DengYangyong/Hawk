@@ -106,10 +106,9 @@ class DynamicTree:
             return
         if len(node.children) >= self.max_degree:
             return
-        rate = self.lr if (len(node.children) == 0) else self.lr / 2
-        node.score += rate
+        node.score += self.lr
         if node.score >= self.split_thresh:
             node.add_child(TreeNode(score=(node.score / 2)))
             self.size += 1
             node.score /= 2
-        self.leaf_decay(rate)
+        self.leaf_decay(self.lr)
