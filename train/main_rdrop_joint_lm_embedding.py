@@ -19,7 +19,7 @@ train_config = {
     "gradient_accumulation_steps": args.gradient_accumulation_steps,
     "datapath": f"{args.tmpdir}",
     "is_warmup": True,
-    "num_epochs": 20,
+    "num_epochs": 10,
     # Depending on your data and model size, the larger the model, the higher the sample efficiency. We recommend setting it between 20-40.
     "num_warmup_steps": 2000,
     "total_steps": 800000,
@@ -439,7 +439,6 @@ for epoch in range(num_epochs + 1):
             # calculate the kl divergence loss of predict_1 and predict_2
             kl_loss_reg = compute_kl_loss(predict_1, predict_2, pad_mask=loss_mask)
             vloss = vloss + train_config["alpha"] * kl_loss_reg
-
 
             target_head = head(target)
             target_p = nn.Softmax(dim=2)(target_head)
