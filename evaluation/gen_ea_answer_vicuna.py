@@ -9,6 +9,9 @@ import os
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
 import time
 
+parentdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+os.sys.path.insert(0, parentdir)
+
 import shortuuid
 from fastchat.llm_judge.common import load_questions
 from fastchat.model import get_conversation_template
@@ -370,15 +373,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ea-model-path",
         type=str,
-        default="down_checkpoints/LC70B",
+        default="/root/Hawk/checkpoints/state_0",
         help="The path to the weights. This can be a local folder or a Hugging Face repo ID.",
     )
-    parser.add_argument("--base-model-path", type=str, default="/home/lyh/weights/hf/llama2chat/70B/",
+    parser.add_argument("--base-model-path", type=str, default="/root/model/vicuna-7b-v1.3",
                         help="1")
     parser.add_argument(
         "--load-in-8bit", action="store_false", help="Use 8-bit quantization"
     )
-    parser.add_argument("--model-id", type=str, default="ess-vicuna-70b-fp16")
+    parser.add_argument("--model-id", type=str, default="hawk-vicuna-7b-v1.3")
     parser.add_argument(
         "--bench-name",
         type=str,
@@ -424,7 +427,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--temperature",
         type=float,
-        default=1.0,
+        default=0.0,
     )
 
     parser.add_argument(
