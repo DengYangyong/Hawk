@@ -1,52 +1,43 @@
 import json
 from transformers import AutoTokenizer
-import numpy as np
+tokenizer=AutoTokenizer.from_pretrained("/root/model/vicuna-7b-v1.3")
 
-tokenizer=AutoTokenizer.from_pretrained("/home/lyh/weights/hf/llama2chat/13B/")
-jsonl_file = "llama-2-chat-70b-fp16-ea-in-temperature-0.0.jsonl"
-jsonl_file_base = "llama-2-chat-70b-fp16-base-in-temperature-0.0.jsonl"
+jsonl_file = "/root/Hawk/data/mt_bench/model_answer/hawk-vicuna-7b-v1.3-temperature-0.0.jsonl"  # 用你的 JSONL 文件名替换这里
+
 data = []
 with open(jsonl_file, 'r', encoding='utf-8') as file:
     for line in file:
+        # 逐行解析 JSON 对象
         json_obj = json.loads(line)
         data.append(json_obj)
 
-
-
-speeds=[]
-for datapoint in data:
-    qid=datapoint["question_id"]
-    answer=datapoint["choices"][0]['turns']
-    tokens=sum(datapoint["choices"][0]['new_tokens'])
-    times = sum(datapoint["choices"][0]['wall_time'])
-    speeds.append(tokens/times)
-
-
-data = []
-with open(jsonl_file_base, 'r', encoding='utf-8') as file:
-    for line in file:
-        json_obj = json.loads(line)
-        data.append(json_obj)
-
-
-total_time=0
+# 现在，'data' 列表中包含了 JSONL 文件中的所有数据
+errorids_old=[85, 87, 114, 117, 140, 142, 147, 150]
+errorids=[]
 total_token=0
-speeds0=[]
+total_time=0
 for datapoint in data:
     qid=datapoint["question_id"]
+    # if qid in errorids_old:
+    #     continue
     answer=datapoint["choices"][0]['turns']
-    tokens = 0
+    continue_flag=0
     for i in answer:
-        tokens += (len(tokenizer(i).input_ids) - 1)
+        if "ERROR"==i or "many, many, many" in i:
+            errorids.append(qid)
+            continue_flag=1
+            break
+    if continue_flag:
+        continue
+    tokens=0
+    for i in answer:
+        tokens+=(len(tokenizer(i).input_ids)-2)
+    #tokens=sum(datapoint["choices"][0]['new_tokens'])
     times = sum(datapoint["choices"][0]['wall_time'])
-    speeds0.append(tokens / times)
-    total_time+=times
     total_token+=tokens
-
-
-
-# print('speed',np.array(speeds).mean())
-# print('speed0',np.array(speeds0).mean())
-print("ratio",np.array(speeds).mean()/np.array(speeds0).mean())
-
-
+    total_time+=times
+print("total_token",total_token)
+print("total_time",total_time)
+print("speed",total_time/total_token)
+print(errorids)
+import transformers.generation.utils

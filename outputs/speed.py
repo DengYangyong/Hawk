@@ -1,8 +1,8 @@
 import json
 from transformers import AutoTokenizer
-tokenizer=AutoTokenizer.from_pretrained("/home/lyh/weights/hf/vicuna_v13/33B/")
+tokenizer=AutoTokenizer.from_pretrained("/root/model/vicuna-7b-v1.3")
 
-jsonl_file = "/home/lyh/code/nlp/ess/Medusa/llm_judge/data/mt_bench/model_answer0/vicuna-33b-v1.3-0_baseline_fp16-greedy.jsonl"  # 用你的 JSONL 文件名替换这里
+jsonl_file = "/root/Hawk/data/mt_bench/model_answer/hawk-vicuna-7b-v1.3-temperature-0.0.jsonl"  # 用你的 JSONL 文件名替换这里
 
 data = []
 with open(jsonl_file, 'r', encoding='utf-8') as file:
