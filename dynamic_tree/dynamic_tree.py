@@ -49,7 +49,7 @@ class TreeNode:
         raise ValueError("Index or depth out of bounds")
 
 class DynamicTree:
-    def __init__(self, tree_choices=None, lr=0.05, default_score=0.5, split_thresh=1, max_degree=4):
+    def __init__(self, tree_choices=None, lr=0.1, default_score=0.5, split_thresh=1, max_degree=4):
         self.root = TreeNode(score=default_score)
         self.size = 1 # number of nodes in the tree
         if tree_choices:
@@ -83,17 +83,40 @@ class DynamicTree:
     def num_nodes(self):
         return self.size
     
-    def leaf_decay(self, rate):
-        # for every leaf, decay its score by rate / num_leaves
-        queue = [self.root]
+    def dfs(self):
+        result = []
+        stack = [(self.root, 0)]
+        while stack:
+            node, depth = stack.pop()
+            result.append((node, depth))
+            for child in node.children:
+                stack.append((child, depth + 1))
+        return result
+    
+    def tree_decay(self, total_decay):
+        # for every node, decay its score by total_decay / num_nodes
+        queue = self.dfs()
+        num_nodes = self.num_nodes()
         while queue:
-            node = queue.pop(0)
-            if not node.children:
-                node.score -= rate / self.num_leaves()
+            node, _ = queue.pop()
+            node.score -= total_decay / num_nodes
+            if node.score <= 0:
+                # try to borrow score from its last children
+                while node.score <= 0 and node.children:
+                    last_child = node.children[-1]
+                    node.score += last_child.score
+                    node.delete_child(last_child)
                 if node.score <= 0:
                     node.parent.delete_child(node)
                     self.size -= 1
-            else:
+    
+    def reorder_children(self):
+        # keep the leftmost branch the biggest (contains the most leaves)
+        queue = [self.root]
+        while queue:
+            node = queue.pop(0)
+            if node.children:
+                node.children.sort(key=lambda x: x.size, reverse=True)
                 queue.extend(node.children)
     
     # index starts from 1
@@ -103,12 +126,91 @@ class DynamicTree:
             node = self.root.get_path(index, depth)
         except ValueError:
             print("Got a very rare value error. Skipping...")
-            return
-        if len(node.children) >= self.max_degree:
-            return
-        node.score += self.lr
-        if node.score >= self.split_thresh:
-            node.add_child(TreeNode(score=(node.score / 2)))
-            self.size += 1
-            node.score /= 2
-        self.leaf_decay(self.lr)
+            return False
+        # increase the score of all nodes on the path to the root
+        flag = False
+        total_added_score = 0
+        while node:
+            if len(node.children) >= self.max_degree:
+                node = node.parent
+                continue
+            rate = self.lr / (len(node.children) + 1)
+            node.score += rate
+            total_added_score += rate
+            # split the node if its score exceeds the threshold
+            if node.score >= self.split_thresh:
+                node.add_child(TreeNode(score=(node.score / 2)))
+                self.size += 1
+                node.score /= 2
+                flag = True
+            node = node.parent
+        self.tree_decay(total_added_score)
+        self.reorder_children()
+
+        return flag
+
+
+# class DynamicTree:
+#     def __init__(self, tree_choices=None, lr=0.05, default_score=0.5, split_thresh=1, max_degree=4):
+#         self.root = TreeNode(score=default_score)
+#         self.size = 1 # number of nodes in the tree
+#         if tree_choices:
+#             node_dict = {(): self.root}
+#             for node_path in tree_choices:
+#                 parent_path = tuple(node_path[:-1])
+#                 parent_node = node_dict[parent_path]
+#                 child_node = TreeNode(score=default_score)
+#                 parent_node.add_child(child_node)
+#                 self.size += 1
+#                 node_dict[tuple(node_path)] = child_node
+#         self.lr = lr
+#         self.split_thresh = split_thresh
+#         self.max_degree = max_degree
+    
+#     def to_list(self):
+#         return [node for node, _, _ in self.root.subtree_to_list()]
+    
+#     def print_tree(self, verbose=True):
+#         if verbose:
+#             print(self.root.subtree_to_list())
+#         else:
+#             print(self.to_list())
+    
+#     def depth(self):
+#         return len(self.root.subtree_to_list()[-1][0])
+    
+#     def num_leaves(self):
+#         return self.root.size
+    
+#     def num_nodes(self):
+#         return self.size
+    
+#     def leaf_decay(self, rate):
+#         # for every leaf, decay its score by rate / num_leaves
+#         queue = [self.root]
+#         while queue:
+#             node = queue.pop(0)
+#             if not node.children:
+#                 node.score -= rate / self.num_leaves()
+#                 if node.score <= 0:
+#                     node.parent.delete_child(node)
+#                     self.size -= 1
+#             else:
+#                 queue.extend(node.children)
+    
+#     # index starts from 1
+#     # depth of root is 0
+#     def visit_node(self, index, depth):
+#         try:
+#             node = self.root.get_path(index, depth)
+#         except ValueError:
+#             print("Got a very rare value error. Skipping...")
+#             return
+#         if len(node.children) >= self.max_degree:
+#             return
+#         node.score += self.lr
+#         if node.score >= self.split_thresh:
+#             node.add_child(TreeNode(score=(node.score / 2)))
+#             self.size += 1
+#             node.score /= 2
+#         self.leaf_decay(self.lr)
