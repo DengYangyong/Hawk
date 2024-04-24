@@ -15,27 +15,19 @@ Vicuna 需要下载ShareGPT数据，但Vicuna的团队并没有发布原始数�
 ### 安装git-lfs
 apt-get install git-lfs
 
-### 克隆仓库，但是不立即下载 LFS 对象
+### 克隆仓库，下载 LFS 对象
 git clone https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered
-
-### 进入仓库目录
-cd ShareGPT_Vicuna_unfiltered
-
-### 安装 git-lfs 后，拉取指定的 LFS 文件
-git lfs pull --include="ShareGPT_V3_unfiltered_cleaned_split.json"
 
 # 2、拉取模型
 git lfs clone https://huggingface.co/lmsys/vicuna-7b-v1.3 
-
-git lfs pull
 
 # 3、生成训练数据
 
 直接跑根目录下的：ge_data.sh，生成 1500+的数据。
 
-以下是拉取代码的说明：
+以下是拉取代码的说明：通过以下方式可以拉取 100 条
 
-python ge_data/ge_data_all_vicuna.py --start 0 --end 1000 --outdir /root/Hawk/data/ShareGPT_Vicuna_unfiltered/
+python ge_data/ge_data_all_vicuna.py --start 0 --end 100 --outdir /root/Hawk/data/ShareGPT_Vicuna_unfiltered/
 
 需要自己设置一些命令行参数，先生成少量数据测通。
 
