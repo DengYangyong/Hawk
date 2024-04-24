@@ -1,0 +1,1 @@
+nohup python -m torch.distributed.launch --nproc_per_node=2 train/main.py --tmpdir /root/Hawk/data/ShareGPT_Vicuna_unfiltered/1/ --outdir checkpoints/ --cpdir checkpoints/ --basepath /root/model/vicuna-7b-v1.3 --configpath train/vicuna_7B_config.json --bs 3 > vicuna.log 2>&1 &
