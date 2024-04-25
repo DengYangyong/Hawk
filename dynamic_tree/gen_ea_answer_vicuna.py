@@ -21,7 +21,7 @@ from ..model.kv_cache import initialize_past_key_values
 from ..model.utils import *
 from ..model.choices import *
 
-USE_DYNAMIC_TREE = False
+USE_DYNAMIC_TREE = True
 
 
 def ea_forward(input_ids, model, tokenizer, tree_choices, logits_processor=None, max_steps=512, warmup=False):
@@ -65,61 +65,112 @@ def ea_forward(input_ids, model, tokenizer, tree_choices, logits_processor=None,
     )
     new_token = 0
 
-    for idx in range(max_steps):
-        if warmup and idx > 0:
-            input_ids = input_ids.clone()
-            model.ea_layer.reset_kv()
-            
-            model.dynamic_tree.visit_node(best_candidate + 1, accept_length) # the tree index starts from 1
-            # model.dynamic_tree.print_tree(verbose=False)
-            tree_buffers = generate_tree_buffers(
-                model.dynamic_tree.to_list(), device=model.base_model.model.layers[-1].self_attn.q_proj.weight.device
-            )
-            tree_buffers["retrieve_indices_head"] = tree_buffers["retrieve_indices"].to(
-                model.base_model.lm_head.weight.device)
-            model.tree_buffers = tree_buffers
-            model.tree_choices = model.dynamic_tree.to_list()
+    curr_tree = model.dynamic_tree.to_list()
+    next_tree = None
+    best_candidate = None
 
-            reset_tree_mode(model)
-            tree_logits, logits, hidden_state, sample_token = initialize_tree(
-                input_ids, model, tree_buffers["tree_attn_mask"], past_key_values, logits_processor
+    for idx in range(max_steps):
+        if warmup and idx > 0 and best_candidate is not None:
+            model.dynamic_tree.visit_node(best_candidate + 1, accept_length) # the tree index starts from 1
+            next_tree = model.dynamic_tree.to_list()
+            if curr_tree != next_tree:
+                input_ids = input_ids.clone()
+                model.ea_layer.reset_kv()
+                model.dynamic_tree.print_tree(verbose=False)
+                tree_buffers = generate_tree_buffers(
+                    model.dynamic_tree.to_list(), device=model.base_model.model.layers[-1].self_attn.q_proj.weight.device
+                )
+                # print(tree_buffers["tree_indices"])
+                tree_buffers["retrieve_indices_head"] = tree_buffers["retrieve_indices"].to(
+                    model.base_model.lm_head.weight.device)
+                model.tree_buffers = tree_buffers
+                model.tree_choices = model.dynamic_tree.to_list()
+
+                input_len = input_ids.shape[1]
+
+                reset_tree_mode(model)
+                tree_logits, logits, hidden_state, sample_token = initialize_tree(
+                    input_ids, model, tree_buffers["tree_attn_mask"], past_key_values, logits_processor
+                )
+                model.ea_layer.init_tree(tree=model.tree_choices)
+                curr_tree = next_tree
+        
+        # candidates, cart_candidates_prob, tree_candidates = generate_candidates(
+        #     tree_logits,
+        #     tree_buffers["tree_indices"],
+        #     tree_buffers["retrieve_indices"],
+        #     sample_token,
+        #     logits_processor
+        # )
+        # logits, hidden_state_new, outputs = tree_decoding(
+        #     model,
+        #     tree_candidates,
+        #     past_key_values,
+        #     tree_buffers["tree_position_ids"],
+        #     input_ids,
+        #     tree_buffers["retrieve_indices_head"],
+        # )
+        # best_candidate, accept_length, sample_p = evaluate_posterior(
+        #     logits, candidates, logits_processor, cart_candidates_prob, tree_logits[2], tree_buffers["p_indices"],
+        #     tree_candidates, tree_buffers["b_indices"]
+        # )
+        # input_ids, tree_logits, new_token, hidden_state, sample_token = update_inference_inputs(
+        #     input_ids,
+        #     candidates,
+        #     best_candidate,
+        #     accept_length,
+        #     tree_buffers["retrieve_indices"],
+        #     logits_processor,
+        #     logits,
+        #     tree_logits,
+        #     new_token,
+        #     past_key_values_data,
+        #     current_length_data,
+        #     model,
+        #     hidden_state,
+        #     hidden_state_new,
+        #     sample_p
+        # )
+        try:
+            candidates, cart_candidates_prob, tree_candidates = generate_candidates(
+                tree_logits,
+                tree_buffers["tree_indices"],
+                tree_buffers["retrieve_indices"],
+                sample_token,
+                logits_processor
             )
-        candidates, cart_candidates_prob, tree_candidates = generate_candidates(
-            tree_logits,
-            tree_buffers["tree_indices"],
-            tree_buffers["retrieve_indices"],
-            sample_token,
-            logits_processor
-        )
-        logits, hidden_state_new, outputs = tree_decoding(
-            model,
-            tree_candidates,
-            past_key_values,
-            tree_buffers["tree_position_ids"],
-            input_ids,
-            tree_buffers["retrieve_indices_head"],
-        )
-        best_candidate, accept_length, sample_p = evaluate_posterior(
-            logits, candidates, logits_processor, cart_candidates_prob, tree_logits[2], tree_buffers["p_indices"],
-            tree_candidates, tree_buffers["b_indices"]
-        )
-        input_ids, tree_logits, new_token, hidden_state, sample_token = update_inference_inputs(
-            input_ids,
-            candidates,
-            best_candidate,
-            accept_length,
-            tree_buffers["retrieve_indices"],
-            logits_processor,
-            logits,
-            tree_logits,
-            new_token,
-            past_key_values_data,
-            current_length_data,
-            model,
-            hidden_state,
-            hidden_state_new,
-            sample_p
-        )
+            logits, hidden_state_new, outputs = tree_decoding(
+                model,
+                tree_candidates,
+                past_key_values,
+                tree_buffers["tree_position_ids"],
+                input_ids,
+                tree_buffers["retrieve_indices_head"],
+            )
+            best_candidate, accept_length, sample_p = evaluate_posterior(
+                logits, candidates, logits_processor, cart_candidates_prob, tree_logits[2], tree_buffers["p_indices"],
+                tree_candidates, tree_buffers["b_indices"]
+            )
+            input_ids, tree_logits, new_token, hidden_state, sample_token = update_inference_inputs(
+                input_ids,
+                candidates,
+                best_candidate,
+                accept_length,
+                tree_buffers["retrieve_indices"],
+                logits_processor,
+                logits,
+                tree_logits,
+                new_token,
+                past_key_values_data,
+                current_length_data,
+                model,
+                hidden_state,
+                hidden_state_new,
+                sample_p
+            )
+        except:
+            print('ERROR in iteration:', idx)
+            continue
         if tokenizer.eos_token_id in input_ids[0, input_len:].tolist():
             break
         if new_token > 1024:
@@ -208,7 +259,8 @@ def get_model_answers(
         torch_dtype=torch.float16,
         low_cpu_mem_usage=True,
         # load_in_8bit=True,
-        device_map="auto"
+        device_map="auto",
+        tree_choices=tree_choices,
     )
 
     # print all arguments
@@ -264,7 +316,7 @@ def get_model_answers(
                 torch.as_tensor(input_ids).cuda(),
                 model,
                 tokenizer,
-                tree_choices,
+                model.dynamic_tree.to_list(),
                 logits_processor,
                 warmup=True
             )

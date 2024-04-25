@@ -8,32 +8,24 @@ import json
 import os
 script_dir = os.path.dirname(__file__)
 parent_dir = os.path.dirname(script_dir)
-from accelerate.utils import set_seed
-set_seed(0)
-#os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
-#os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
 import time
+
 import shortuuid
-import torch
+from fastchat.llm_judge.common import load_questions
+from fastchat.model import get_conversation_template
 from tqdm import tqdm
 
-from fastchat.llm_judge.common import load_questions, temperature_config
-from fastchat.model import load_model, get_conversation_template
-
-
-
-import transformers
-
-
-from ..model.utils_alpha import *
 from ..model.ea_model import EaModel
 from ..model.kv_cache import initialize_past_key_values
+from ..model.utils import *
+from ..model.utils_alpha import evaluate_posterior as evaluate_posterior2
 from ..model.choices import *
 
 USE_DYNAMIC_TREE = True
 
 
-def ea_forward(input_ids, model, tokenizer, tree_choices, logits_processor=None , max_steps = 512, warmup=False):
+def ea_forward(input_ids, model, tokenizer, tree_choices, logits_processor=None, max_steps=512, warmup=False):
     assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
     # Avoid modifying the input_ids in-place
     input_ids = input_ids.clone()
@@ -49,6 +41,8 @@ def ea_forward(input_ids, model, tokenizer, tree_choices, logits_processor=None 
         tree_buffers = generate_tree_buffers(
             tree_choices, device=model.base_model.model.layers[-1].self_attn.q_proj.weight.device
         )
+        tree_buffers["retrieve_indices_head"] = tree_buffers["retrieve_indices"].to(
+            model.base_model.lm_head.weight.device)
     model.tree_buffers = tree_buffers
     model.tree_choices = tree_choices
 
@@ -71,50 +65,98 @@ def ea_forward(input_ids, model, tokenizer, tree_choices, logits_processor=None 
 
     input_len = input_ids.shape[1]
     reset_tree_mode(model)
-    tree_logits, logits,hidden_state,sample_token = initialize_tree(
-            input_ids, model, tree_buffers["tree_attn_mask"], past_key_values,logits_processor
+    tree_logits, logits, hidden_state, sample_token = initialize_tree(
+        input_ids, model, tree_buffers["tree_attn_mask"], past_key_values, logits_processor
     )
     new_token = 0
 
-    for idx in range(max_steps):
-        if warmup and idx > 0:
-            input_ids = input_ids.clone()
-            model.ea_layer.reset_kv()
-            
-            model.dynamic_tree.visit_node(best_candidate + 1, accept_length) # the tree index starts from 1
-            # model.dynamic_tree.print_tree(verbose=False)
-            tree_buffers = generate_tree_buffers(
-                model.dynamic_tree.to_list(), device=model.base_model.model.layers[-1].self_attn.q_proj.weight.device
-            )
-            tree_buffers["retrieve_indices_head"] = tree_buffers["retrieve_indices"].to(
-                model.base_model.lm_head.weight.device)
-            model.tree_buffers = tree_buffers
-            model.tree_choices = model.dynamic_tree.to_list()
+    curr_tree = model.dynamic_tree.to_list()
+    next_tree = None
+    best_candidate = None
 
-            reset_tree_mode(model)
-            tree_logits, logits, hidden_state, sample_token = initialize_tree(
-                input_ids, model, tree_buffers["tree_attn_mask"], past_key_values, logits_processor
-            )
-        candidates,cart_candidates_prob, tree_candidates = generate_candidates(
+    for idx in range(max_steps):
+        if warmup and idx > 0 and best_candidate is not None:
+            model.dynamic_tree.visit_node(best_candidate + 1, accept_length) # the tree index starts from 1
+            next_tree = model.dynamic_tree.to_list()
+            if curr_tree != next_tree:
+                input_ids = input_ids.clone()
+                model.ea_layer.reset_kv()
+                model.dynamic_tree.print_tree(verbose=False)
+                tree_buffers = generate_tree_buffers(
+                    model.dynamic_tree.to_list(), device=model.base_model.model.layers[-1].self_attn.q_proj.weight.device
+                )
+                # print(tree_buffers["tree_indices"])
+                tree_buffers["retrieve_indices_head"] = tree_buffers["retrieve_indices"].to(
+                    model.base_model.lm_head.weight.device)
+                model.tree_buffers = tree_buffers
+                model.tree_choices = model.dynamic_tree.to_list()
+
+                input_len = input_ids.shape[1]
+
+                reset_tree_mode(model)
+                tree_logits, logits, hidden_state, sample_token = initialize_tree(
+                    input_ids, model, tree_buffers["tree_attn_mask"], past_key_values, logits_processor
+                )
+                model.ea_layer.init_tree(tree=model.tree_choices)
+                curr_tree = next_tree
+        
+        # candidates, cart_candidates_prob, tree_candidates = generate_candidates(
+        #     tree_logits,
+        #     tree_buffers["tree_indices"],
+        #     tree_buffers["retrieve_indices"],
+        #     sample_token,
+        #     logits_processor
+        # )
+        # logits, hidden_state_new, outputs = tree_decoding(
+        #     model,
+        #     tree_candidates,
+        #     past_key_values,
+        #     tree_buffers["tree_position_ids"],
+        #     input_ids,
+        #     tree_buffers["retrieve_indices_head"],
+        # )
+        # best_candidate, accept_length, sample_p = evaluate_posterior(
+        #     logits, candidates, logits_processor, cart_candidates_prob, tree_logits[2], tree_buffers["p_indices"],
+        #     tree_candidates, tree_buffers["b_indices"]
+        # )
+        # input_ids, tree_logits, new_token, hidden_state, sample_token = update_inference_inputs(
+        #     input_ids,
+        #     candidates,
+        #     best_candidate,
+        #     accept_length,
+        #     tree_buffers["retrieve_indices"],
+        #     logits_processor,
+        #     logits,
+        #     tree_logits,
+        #     new_token,
+        #     past_key_values_data,
+        #     current_length_data,
+        #     model,
+        #     hidden_state,
+        #     hidden_state_new,
+        #     sample_p
+        # )
+        try:
+            candidates, cart_candidates_prob, tree_candidates = generate_candidates(
                 tree_logits,
                 tree_buffers["tree_indices"],
                 tree_buffers["retrieve_indices"],
                 sample_token,
                 logits_processor
             )
-        logits, hidden_state_new,outputs = tree_decoding(
+            logits, hidden_state_new, outputs = tree_decoding(
                 model,
                 tree_candidates,
                 past_key_values,
                 tree_buffers["tree_position_ids"],
                 input_ids,
-                tree_buffers["retrieve_indices"],
+                tree_buffers["retrieve_indices_head"],
             )
-        best_candidate, accept_length,sample_p = evaluate_posterior(
+            best_candidate, accept_length,sample_p = evaluate_posterior2(
                 logits, candidates, logits_processor, cart_candidates_prob,alpha,alpha_num,tree_logits[2], tree_buffers["p_indices"],
-            tree_candidates, tree_buffers["b_indices"]
+                tree_candidates, tree_buffers["b_indices"]
             )
-        input_ids, tree_logits, new_token,hidden_state,sample_token = update_inference_inputs(
+            input_ids, tree_logits, new_token, hidden_state, sample_token = update_inference_inputs(
                 input_ids,
                 candidates,
                 best_candidate,
@@ -131,29 +173,33 @@ def ea_forward(input_ids, model, tokenizer, tree_choices, logits_processor=None 
                 hidden_state_new,
                 sample_p
             )
+        except:
+            print('ERROR in iteration:', idx)
+            continue
         if tokenizer.eos_token_id in input_ids[0, input_len:].tolist():
             break
         if new_token > 1024:
             break
-        if input_ids.shape[1]>1960:
+        if input_ids.shape[1] > 1960:
             break
-    return input_ids, new_token, idx,alpha,alpha_num
+    return input_ids, new_token, idx, alpha, alpha_num
+
 
 def run_eval(
-    base_model_path,
-    ea_model_path,
-    model_id,
-    question_file,
-    question_begin,
-    question_end,
-    answer_file,
-    max_new_token,
-    num_choices,
-    num_gpus_per_model,
-    num_gpus_total,
-    max_gpu_memory,
-    temperature,
-    tree_choices,
+        base_model_path,
+        ea_model_path,
+        model_id,
+        question_file,
+        question_begin,
+        question_end,
+        answer_file,
+        max_new_token,
+        num_choices,
+        num_gpus_per_model,
+        num_gpus_total,
+        max_gpu_memory,
+        temperature,
+        tree_choices,
 ):
     questions = load_questions(question_file, question_begin, question_end)
     # random shuffle the questions to balance the loading
@@ -173,7 +219,7 @@ def run_eval(
     else:
         get_answers_func = get_model_answers
 
-    chunk_size = len(questions) // (num_gpus_total // num_gpus_per_model) # // 2
+    chunk_size = len(questions) // (num_gpus_total // num_gpus_per_model)  # // 2
     ans_handles = []
     for i in range(0, len(questions), chunk_size):
         ans_handles.append(
@@ -181,7 +227,7 @@ def run_eval(
                 base_model_path,
                 ea_model_path,
                 model_id,
-                questions[i : i + chunk_size],
+                questions[i: i + chunk_size],
                 answer_file,
                 max_new_token,
                 num_choices,
@@ -198,45 +244,62 @@ def run_eval(
 
 @torch.inference_mode()
 def get_model_answers(
-    base_model_path,
-    ea_model_path,
-    model_id,
-    questions,
-    answer_file,
-    max_new_token,
-    num_choices,
-    num_gpus_per_model,
-    max_gpu_memory,
-    temperature,
-    tree_choices,
+        base_model_path,
+        ea_model_path,
+        model_id,
+        questions,
+        answer_file,
+        max_new_token,
+        num_choices,
+        num_gpus_per_model,
+        max_gpu_memory,
+        temperature,
+        tree_choices,
 ):
-    #temperature = 0.0
-
-
+    # temperature = 0.0
 
     model = EaModel.from_pretrained(
-        base_model_path = base_model_path,
-        ea_model_path = ea_model_path,
+        base_model_path=base_model_path,
+        ea_model_path=ea_model_path,
         torch_dtype=torch.float16,
         low_cpu_mem_usage=True,
         # load_in_8bit=True,
-        device_map="auto"
+        device_map="auto",
+        tree_choices=tree_choices,
     )
+
+    # print all arguments
+    print('base_model_path:', base_model_path)
+    print('ea_model_path:', ea_model_path)
+    print('model_id:', model_id)
+    print('max_new_token:', max_new_token)
+    print('num_choices:', num_choices)
+    print('num_gpus_per_model:', num_gpus_per_model)
+    print('max_gpu_memory:', max_gpu_memory)
+    print('temperature:', temperature)
+    print('tree_choices:', tree_choices)
+    print("num_turns:", len(questions[0]["turns"]))
+    print("num_questions:", len(questions))
+    print("dynamic:", USE_DYNAMIC_TREE)
 
     tokenizer = model.get_tokenizer()
 
-    if temperature>1e-5:
+    if temperature > 1e-5:
         logits_processor = prepare_logits_processor(temperature=temperature)
     else:
         logits_processor = None
 
     model.eval()
-    print('Check model training state:',model.training)
+    print('Check model training state:', model.training)
 
     cuda_visible_devices = os.environ.get('CUDA_VISIBLE_DEVICES')
     print('CUDA VISIBLE DEVICES:', cuda_visible_devices)
 
     question = questions[0]
+
+    max_len = max([len(i) for i in tree_choices])
+    alpha_num = [0 for _ in range(max_len)]
+    alpha = [0 for _ in range(max_len)]
 
     # warmup
     for _ in range(3):
@@ -258,17 +321,21 @@ def get_model_answers(
             torch.cuda.synchronize()
             start_time = time.time()
 
-            output_ids, new_token, idx,alpha,alpha_num = ea_forward(
+            output_ids, new_token, idx, alpha, alpha_num = ea_forward(
                 torch.as_tensor(input_ids).cuda(),
                 model,
                 tokenizer,
-                tree_choices,
+                model.dynamic_tree.to_list(),
                 logits_processor,
-                warmup=True,
+                warmup=True
             )
+            # update alpha and alpha_num
+            alpha_num = [alpha_num[i] + alpha_num[i] for i in range(len(alpha_num))]
+            alpha = [alpha[i] + alpha[i] for i in range(len(alpha))]
+
             torch.cuda.synchronize()
             total_time = time.time() - start_time
-            output_ids = output_ids[0][len(input_ids[0]) :]
+            output_ids = output_ids[0][len(input_ids[0]):]
             # be consistent with the template's stop_token_ids
             if conv.stop_token_ids:
                 stop_token_ids_index = [
@@ -283,7 +350,7 @@ def get_model_answers(
                 output_ids,
                 spaces_between_special_tokens=False,
             )
-            conv.stop_str="</s>"
+            conv.stop_str = "</s>"
             if conv.stop_str and output.find(conv.stop_str) > 0:
                 output = output[: output.find(conv.stop_str)]
             for special_token in tokenizer.special_tokens_map.values():
@@ -296,7 +363,6 @@ def get_model_answers(
 
             if conv.name == "xgen" and output.startswith("Assistant:"):
                 output = output.replace("Assistant:", "", 1).strip()
-
 
             turns.append(output)
             idxs.append(int(idx))
@@ -311,11 +377,10 @@ def get_model_answers(
         optimized_tree = tree_choices
     print('Optimized tree:', optimized_tree)
 
-    max_len = max([len(i) for i in tree_choices])
-    cumulative_alpha = [0 for _ in range(max_len)]
-    cumulative_alpha_num = [0 for _ in range(max_len)]
+    total_wall_time = 0
+    total_new_tokens = 0
 
-    #questions=questions[6:]
+    # questions=questions[6:]
     for question in tqdm(questions):
 
         choices = []
@@ -333,7 +398,6 @@ def get_model_answers(
                 prompt = conv.get_prompt()
                 input_ids = tokenizer([prompt]).input_ids
 
-
                 try:
                     torch.cuda.synchronize()
                     start_time = time.time()
@@ -341,14 +405,17 @@ def get_model_answers(
                         torch.as_tensor(input_ids).cuda(),
                         model,
                         tokenizer,
-                        tree_choices,
+                        optimized_tree,
                         logits_processor,
-                        warmup=False,
+                        warmup=False
                     )
+                    # update alpha and alpha_num
+                    alpha_num = [alpha_num[i] + alpha_num[i] for i in range(len(alpha_num))]
+                    alpha = [alpha[i] + alpha[i] for i in range(len(alpha))]
+                    
                     torch.cuda.synchronize()
                     total_time = time.time() - start_time
-                    output_ids = output_ids[0][len(input_ids[0]) :]
-
+                    output_ids = output_ids[0][len(input_ids[0]):]
 
                     if conv.stop_token_ids:
                         stop_token_ids_index = [
@@ -375,10 +442,6 @@ def get_model_answers(
 
                     if conv.name == "xgen" and output.startswith("Assistant:"):
                         output = output.replace("Assistant:", "", 1).strip()
-
-                    cumulative_alpha = [cumulative_alpha[i] + alpha[i] for i in range(max_len)]
-                    cumulative_alpha_num = [cumulative_alpha_num[i] + alpha_num[i] for i in range(max_len)]
-
                 except RuntimeError as e:
                     print("ERROR question ID: ", question["question_id"])
                     output = "ERROR"
@@ -388,8 +451,11 @@ def get_model_answers(
                 new_tokens.append(int(new_token))
                 wall_time.append(total_time)
                 conv.messages[-1][-1] = output
+
+            total_wall_time += sum(wall_time)
+            total_new_tokens += sum(new_tokens)
             # torch.cuda.empty_cache()
-            choices.append({"index": i, "turns": turns, "idxs": idxs, "new_tokens": new_tokens, "wall_time": wall_time,"alpha":alpha,"alpha_num":alpha_num})
+            choices.append({"index": i, "turns": turns, "idxs": idxs, "new_tokens": new_tokens, "wall_time": wall_time})
 
         # Dump answers
         os.makedirs(os.path.dirname(answer_file), exist_ok=True)
@@ -403,8 +469,12 @@ def get_model_answers(
             }
             fout.write(json.dumps(ans_json) + "\n")
     
-    alpha_results = [round(cumulative_alpha[i] / cumulative_alpha_num[i], 2) for i in range(max_len)]
-    print('Alpha results (starting from 1):', alpha_results)
+    print('Total wall time:', total_wall_time)
+    print('Total new tokens:', total_new_tokens)
+    print('Geration rate:', total_new_tokens / total_wall_time)
+    print('Alpha:', alpha)
+    print('Alpha_num:', alpha_num)
+    print("Average Alpha:", [alpha[i] / alpha_num[i] for i in range(len(alpha))])
 
 
 def reorg_answer_file(answer_file):
@@ -426,15 +496,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ea-model-path",
         type=str,
-        default="/home/lyh/weights/hf/eagle/vicuna/7B/",
+        default="down_checkpoints/LC70B",
         help="The path to the weights. This can be a local folder or a Hugging Face repo ID.",
     )
-    parser.add_argument("--base-model-path", type=str, default="/home/lyh/weights/hf/vicuna_v13/7B/",
+    parser.add_argument("--base-model-path", type=str, default="/home/lyh/weights/hf/llama2chat/70B/",
                         help="1")
     parser.add_argument(
         "--load-in-8bit", action="store_false", help="Use 8-bit quantization"
     )
-    parser.add_argument("--model-id", type=str, default="tmp")
+    parser.add_argument("--model-id", type=str, default="ess-vicuna-70b-fp16")
     parser.add_argument(
         "--bench-name",
         type=str,
@@ -483,19 +553,15 @@ if __name__ == "__main__":
         default=1.0,
     )
 
-
     parser.add_argument(
         "--tree-choices",
         type=str,
         default="mc_sim_7b_63",
     )
 
-
-
-
     args = parser.parse_args()
 
-    args.model_id = args.model_id+"-temperature-"+str(args.temperature)
+    args.model_id = args.model_id + "-temperature-" + str(args.temperature)
     args.tree_choices = eval(args.tree_choices)
     if args.num_gpus_total // args.num_gpus_per_model > 1:
         import ray
@@ -509,8 +575,6 @@ if __name__ == "__main__":
         answer_file = f"{args.bench_name}/{args.model_id}.jsonl"
 
     print(f"Output to {answer_file}")
-
-
 
     run_eval(
         args.base_model_path,

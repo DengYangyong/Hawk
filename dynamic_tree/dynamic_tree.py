@@ -105,7 +105,8 @@ class DynamicTree:
                 while node.score <= 0 and node.children:
                     last_child = node.children[-1]
                     node.score += last_child.score
-                    node.delete_child(last_child)
+                    last_child.score = 0
+                    # node.delete_child(last_child)
                 if node.score <= 0:
                     node.parent.delete_child(node)
                     self.size -= 1
@@ -126,15 +127,14 @@ class DynamicTree:
             node = self.root.get_path(index, depth)
         except ValueError:
             print("Got a very rare value error. Skipping...")
-            return False
+            return
         # increase the score of all nodes on the path to the root
-        flag = False
         total_added_score = 0
         while node:
             if len(node.children) >= self.max_degree:
                 node = node.parent
                 continue
-            rate = self.lr / (len(node.children) + 1)
+            rate = self.lr / (2 * len(node.children) + 1)
             node.score += rate
             total_added_score += rate
             # split the node if its score exceeds the threshold
@@ -142,12 +142,9 @@ class DynamicTree:
                 node.add_child(TreeNode(score=(node.score / 2)))
                 self.size += 1
                 node.score /= 2
-                flag = True
             node = node.parent
         self.tree_decay(total_added_score)
         self.reorder_children()
-
-        return flag
 
 
 # class DynamicTree:

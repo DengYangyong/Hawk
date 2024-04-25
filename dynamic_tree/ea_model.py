@@ -9,7 +9,7 @@ from .modeling_llama_kv import LlamaForCausalLM as KVLlamaForCausalLM
 from .modeling_mixtral_kv import MixtralForCausalLM as KVMixtralForCausalLM
 from .utils import *
 from .kv_cache import initialize_past_key_values
-from .choices import mc_sim_7b_63
+from .choices import mc_sim_7b_63, balanced_tree, chain, mc_sim_7b_62
 from transformers import AutoTokenizer
 import os
 from huggingface_hub import hf_hub_download
@@ -61,8 +61,9 @@ class EaModel(nn.Module):
         else:
             self.ea_layer.diff_device = False
         self.ea_layer.to(self.base_model.dtype).to(device)
-        self.ea_layer.init_tree()
-        self.dynamic_tree = DynamicTree(tree_choices=mc_sim_7b_63)
+
+        # self.ea_layer.init_tree(tree=tree_choice)
+        # self.dynamic_tree = DynamicTree(tree_choices=tree_choice)
 
     def get_tokenizer(self):
         """Get the tokenizer of the base model.
@@ -78,6 +79,7 @@ class EaModel(nn.Module):
             Type="LLaMA",
             base_model_path=None,
             ea_model_path=None,
+            tree_choices=mc_sim_7b_63,
             **kwargs,
     ):
         #assert Type=="LLaMA" or "Mixtral"
@@ -105,6 +107,9 @@ class EaModel(nn.Module):
         ea_layer_state_dict = torch.load(load_model_path,
                                          map_location=base_model.device)
         model.ea_layer.load_state_dict(ea_layer_state_dict, strict=True)
+
+        model.ea_layer.init_tree(tree=tree_choices)
+        model.dynamic_tree = DynamicTree(tree_choices=tree_choices)
 
         return model
 
