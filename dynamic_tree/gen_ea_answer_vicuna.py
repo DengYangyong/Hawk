@@ -69,6 +69,9 @@ def ea_forward(input_ids, model, tokenizer, tree_choices, logits_processor=None,
     next_tree = None
     best_candidate = None
 
+    total_acceptance_length = 0
+    num_acceptance = 0
+
     for idx in range(max_steps):
         if warmup and idx > 0 and best_candidate is not None:
             model.dynamic_tree.visit_node(best_candidate + 1, accept_length) # the tree index starts from 1
@@ -168,6 +171,8 @@ def ea_forward(input_ids, model, tokenizer, tree_choices, logits_processor=None,
                 hidden_state_new,
                 sample_p
             )
+            total_acceptance_length += accept_length
+            num_acceptance += 1
         except:
             print('ERROR in iteration:', idx)
             continue
@@ -177,7 +182,7 @@ def ea_forward(input_ids, model, tokenizer, tree_choices, logits_processor=None,
             break
         if input_ids.shape[1] > 1960:
             break
-    return input_ids, new_token, idx
+    return input_ids, new_token, idx, total_acceptance_length, num_acceptance
 
 
 def run_eval(
@@ -292,6 +297,9 @@ def get_model_answers(
 
     question = questions[0]
 
+    overall_acceptance_length = 0
+    overall_num_acceptance = 0
+
     # warmup
     for _ in range(3):
         torch.manual_seed(0)
@@ -312,7 +320,7 @@ def get_model_answers(
             torch.cuda.synchronize()
             start_time = time.time()
 
-            output_ids, new_token, idx = ea_forward(
+            output_ids, new_token, idx, total_acceptance_length, num_acceptance = ea_forward(
                 torch.as_tensor(input_ids).cuda(),
                 model,
                 tokenizer,
@@ -388,7 +396,7 @@ def get_model_answers(
                 try:
                     torch.cuda.synchronize()
                     start_time = time.time()
-                    output_ids, new_token, idx = ea_forward(
+                    output_ids, new_token, idx, total_acceptance_length, num_acceptance = ea_forward(
                         torch.as_tensor(input_ids).cuda(),
                         model,
                         tokenizer,
@@ -396,6 +404,8 @@ def get_model_answers(
                         logits_processor,
                         warmup=False
                     )
+                    overall_acceptance_length += total_acceptance_length
+                    overall_num_acceptance += num_acceptance
                     torch.cuda.synchronize()
                     total_time = time.time() - start_time
                     output_ids = output_ids[0][len(input_ids[0]):]
@@ -455,6 +465,7 @@ def get_model_answers(
     print('Total wall time:', total_wall_time)
     print('Total new tokens:', total_new_tokens)
     print('Geration rate:', total_new_tokens / total_wall_time)
+    print('Average acceptance length:', overall_acceptance_length / overall_num_acceptance)
 
 
 def reorg_answer_file(answer_file):
